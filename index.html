@@ -62,6 +62,13 @@ button:focus-visible, .btn:focus-visible, summary:focus-visible { outline:3px so
 .tile.wrong { border-color:var(--bad); box-shadow:0 0 0 2px var(--bad); animation:shake 0.32s ease; }
 @keyframes pop { from { transform:scale(0.72); opacity:0.5; } to { transform:scale(1); opacity:1; } }
 @keyframes shake { 20%,60% { transform:translateX(-4px); } 40%,80% { transform:translateX(4px); } }
+.ghosts { position:absolute; pointer-events:none; z-index:5; }
+.tile.ghost-tile { position:absolute; inset:auto; animation:none; transition:transform 0.15s ease, opacity 0.15s ease; will-change:transform; }
+.tut { border:1px solid var(--accent); background:var(--card); border-radius:12px; padding:14px; display:flex; flex-direction:column; gap:10px; }
+.tut h2 { margin:0; font-size:1rem; }
+.tut p { margin:0; color:var(--muted); font-size:0.88rem; }
+.tut .cap { min-height:1.2em; color:var(--ink); font-weight:600; font-size:0.86rem; }
+.tut .row2 button { min-height:40px; }
 .dpad { display:grid; grid-template-columns:repeat(3,1fr); grid-template-rows:repeat(3,1fr); gap:6px; max-width:200px; margin-inline:auto; }
 .dpad button { min-height:44px; padding:4px; font-size:1.1rem; }
 .dpad .up { grid-column:2; grid-row:1; } .dpad .left { grid-column:1; grid-row:2; } .dpad .right { grid-column:3; grid-row:2; } .dpad .down { grid-column:2; grid-row:3; }
@@ -114,7 +121,10 @@ footer { color:var(--muted); font-size:0.8rem; }
   <main class="stage" id="stage">
     <div class="topbar">
       <h1>CoinFusion <span class="sup" id="supmark" hidden title="Supporter">&#10022;</span></h1>
-      <button type="button" id="snd" aria-pressed="true" style="min-height:36px;padding:4px 12px;font-size:0.8rem">Sound on</button>
+      <div style="display:flex;gap:6px">
+        <button type="button" id="tut-reopen" style="min-height:36px;padding:4px 12px;font-size:0.8rem" title="How it works">? How it works</button>
+        <button type="button" id="snd" aria-pressed="true" style="min-height:36px;padding:4px 12px;font-size:0.8rem">Sound on</button>
+      </div>
     </div>
     <div class="modes" role="group" aria-label="Mode">
       <button type="button" id="m-daily" aria-pressed="false"><span id="dayno">Daily #1</span></button>
@@ -122,6 +132,15 @@ footer { color:var(--muted); font-size:0.8rem; }
       <button type="button" id="m-endless" aria-pressed="false">Endless</button>
     </div>
     <div class="mod" id="modbox"></div>
+    <section class="tut" id="tutorial" hidden>
+      <h2>New here?</h2>
+      <p>Watch a quick, animated demo of both ways to merge, right on the board below — then jump in.</p>
+      <p class="cap" id="tut-cap"></p>
+      <div class="row2">
+        <button type="button" class="primary" id="tut-play">Watch demo</button>
+        <button type="button" id="tut-skip">No thanks, I'll just play</button>
+      </div>
+    </section>
     <div class="hud">
       <div><small id="h-plabel">Time</small><b id="h-p">90s</b></div>
       <div><small>Score</small><b id="h-score">0</b></div>
@@ -130,6 +149,7 @@ footer { color:var(--muted); font-size:0.8rem; }
     </div>
     <div class="board" id="board">
       <div class="grid" id="grid" role="img" aria-label="Merge board"></div>
+      <div class="ghosts" id="ghosts" aria-hidden="true"></div>
       <div class="dpad" role="group" aria-label="Move">
         <button type="button" class="up" id="d-up" aria-label="Up">&#9650;</button>
         <button type="button" class="left" id="d-left" aria-label="Left">&#9664;</button>
@@ -354,7 +374,7 @@ footer { color:var(--muted); font-size:0.8rem; }
   const SIZE = 4, BLITZ_TIME = 90, DAILY_START_MOVES = 0;
   let board = [], mode = "blitz", rng = Math.random, score = 0, maxTierSession = 1, moves = 0, undoLeft = 1, phase = "playing";
   let timeLeft = BLITZ_TIME, timerId = 0, dailyCfg = null, wonThisSession = false, history = [], mergedCells = [], newCell = -1;
-  let selected = -1, wrongFlashCells = [], wrongFlashTimer = 0;
+  let selected = -1, wrongFlashCells = [], wrongFlashTimer = 0, animating = false;
   function isAdjacent(a, b) {
     const ar = Math.floor(a / SIZE), ac = a % SIZE, br = Math.floor(b / SIZE), bc = b % SIZE;
     return Math.abs(ar - br) + Math.abs(ac - bc) === 1;
@@ -376,14 +396,16 @@ footer { color:var(--muted); font-size:0.8rem; }
     return false;
   }
   function slideLine(line) {
-    const vals = line.filter(function (v) { return v !== 0; });
-    const out = [], mi = [];
-    for (let i = 0; i < vals.length; i++) {
-      if (i < vals.length - 1 && vals[i] === vals[i + 1]) { const nt = vals[i] + 1; out.push(nt); mi.push(out.length - 1); i++; }
-      else out.push(vals[i]);
+    const nz = []; line.forEach(function (v, idx) { if (v !== 0) nz.push({ i: idx, v: v }); });
+    const out = [], mi = [], destFor = [-1, -1, -1, -1];
+    for (let i = 0; i < nz.length; i++) {
+      if (i < nz.length - 1 && nz[i].v === nz[i + 1].v) {
+        const nt = nz[i].v + 1; out.push(nt); mi.push(out.length - 1);
+        destFor[nz[i].i] = out.length - 1; destFor[nz[i + 1].i] = out.length - 1; i++;
+      } else { out.push(nz[i].v); destFor[nz[i].i] = out.length - 1; }
     }
     while (out.length < SIZE) out.push(0);
-    return { line: out, mergedIdx: mi };
+    return { line: out, mergedIdx: mi, destFor: destFor };
   }
   function getLine(b, dir, i) {
     const out = [];
@@ -410,31 +432,66 @@ footer { color:var(--muted); font-size:0.8rem; }
     if (dir === "up") return k * SIZE + i;
     return (SIZE - 1 - k) * SIZE + i;
   }
-  function move(dir) {
-    if (phase !== "playing") return false;
+  function animateSlide(moves2, onDone) {
+    const cells = Array.from(gridEl.querySelectorAll(".cell")), g = $("ghosts");
+    const real = moves2.filter(function (m) { return m.from !== m.to && cells[m.from] && cells[m.to]; });
+    if (!real.length || !cells.length) { onDone(); return; }
+    const boardEl = $("board"), boardRect = boardEl.getBoundingClientRect(), gridRect = gridEl.getBoundingClientRect();
+    g.style.left = (gridRect.left - boardRect.left) + "px"; g.style.top = (gridRect.top - boardRect.top) + "px";
+    g.style.width = gridRect.width + "px"; g.style.height = gridRect.height + "px";
+    g.textContent = "";
+    const hideSet = {};
+    real.forEach(function (m) {
+      const fr = cells[m.from].getBoundingClientRect(), tr = cells[m.to].getBoundingClientRect();
+      const info = tierInfo(m.tier), ghost = document.createElement("div");
+      ghost.className = "tile ghost-tile" + (m.tier === WIN_TIER ? " xno" : (m.tier > WIN_TIER ? " beyond" : ""));
+      ghost.style.left = (fr.left - gridRect.left) + "px"; ghost.style.top = (fr.top - gridRect.top) + "px";
+      ghost.style.width = fr.width + "px"; ghost.style.height = fr.height + "px";
+      ghost.style.borderColor = info.c; ghost.style.color = info.c;
+      const tk = document.createElement("span"); tk.className = "tk"; tk.textContent = info.t;
+      const val = document.createElement("span"); val.className = "val"; val.textContent = tierValue(m.tier).toLocaleString("en-US");
+      ghost.appendChild(tk); ghost.appendChild(val); g.appendChild(ghost);
+      hideSet[m.from] = true;
+      requestAnimationFrame(function () { ghost.style.transform = "translate(" + (tr.left - fr.left) + "px," + (tr.top - fr.top) + "px)"; });
+    });
+    Object.keys(hideSet).forEach(function (idx) { const t = cells[idx] && cells[idx].querySelector(".tile"); if (t) t.style.opacity = "0"; });
+    setTimeout(function () { g.textContent = ""; onDone(); }, 150);
+  }
+  function move(dir, cb) {
+    if (phase !== "playing" || animating) return false;
     const before = board.slice();
     const nb = board.slice();
     let changed = false, gained = 0; mergedCells = [];
+    const slideMoves = [];
     for (let i = 0; i < SIZE; i++) {
       const line = getLine(before, dir, i), res = slideLine(line);
       setLine(nb, dir, i, res.line);
       res.mergedIdx.forEach(function (k) { gained += tierValue(res.line[k]); mergedCells.push(lineIdxToBoardIdx(dir, i, k)); });
+      for (let k = 0; k < SIZE; k++) {
+        if (line[k] !== 0 && res.destFor[k] >= 0) {
+          slideMoves.push({ from: lineIdxToBoardIdx(dir, i, k), to: lineIdxToBoardIdx(dir, i, res.destFor[k]), tier: line[k] });
+        }
+      }
     }
     changed = nb.some(function (v, idx) { return v !== before[idx]; });
     if (!changed) { sfx.nomove(); return false; }
-    history.push({ board: before, score: score, maxTierSession: maxTierSession, moves: moves });
-    board = nb; score += gained; moves++;
-    const newMax = Math.max.apply(null, board);
-    if (newMax > maxTierSession) maxTierSession = newMax;
-    stats.bestTier = Math.max(stats.bestTier, maxTierSession);
-    newCell = -1; spawnTile(board);
-    if (mergedCells.length) { sfx.merge(maxTierSession); vib(mergedCells.length > 1 ? [0, 10, 30, 10] : 8); }
-    saveStats(); renderBoard(); renderHud();
-    if (maxTierSession >= WIN_TIER && !wonThisSession) { wonThisSession = true; stats.wins++; saveStats(); renderStats(); sfx.win(); $("win").hidden = false; }
-    if (!hasMoves(board)) {
-      if (mode === "blitz" && phase === "playing") { setTimeout(resetBlitzBoard, 260); }
-      else endRound();
-    }
+    animating = true;
+    animateSlide(slideMoves, function () {
+      history.push({ board: before, score: score, maxTierSession: maxTierSession, moves: moves });
+      board = nb; score += gained; moves++;
+      const newMax = Math.max.apply(null, board);
+      if (newMax > maxTierSession) maxTierSession = newMax;
+      stats.bestTier = Math.max(stats.bestTier, maxTierSession);
+      newCell = -1; spawnTile(board);
+      if (mergedCells.length) { sfx.merge(maxTierSession); vib(mergedCells.length > 1 ? [0, 10, 30, 10] : 8); }
+      saveStats(); renderBoard(); renderHud(); animating = false;
+      if (maxTierSession >= WIN_TIER && !wonThisSession) { wonThisSession = true; stats.wins++; saveStats(); renderStats(); sfx.win(); $("win").hidden = false; }
+      if (!hasMoves(board)) {
+        if (mode === "blitz" && phase === "playing") { setTimeout(resetBlitzBoard, 260); }
+        else endRound();
+      }
+      if (cb) cb();
+    });
     return true;
   }
   function resetBlitzBoard() {
@@ -443,52 +500,57 @@ footer { color:var(--muted); font-size:0.8rem; }
     toast("Board cleared — your score carries on."); renderBoard(); renderHud();
   }
   function doUndo() {
-    if (phase !== "playing" || !history.length || undoLeft <= 0) return;
+    if (phase !== "playing" || !history.length || undoLeft <= 0 || animating) return;
     const h = history.pop();
     board = h.board; score = h.score; maxTierSession = h.maxTierSession; moves = h.moves; undoLeft--;
     newCell = -1; mergedCells = []; selected = -1; wrongFlashCells = []; clearTimeout(wrongFlashTimer);
     renderBoard(); renderHud(); beep(500, 0.1, "square", 0.03);
   }
 
-  function mergeTap(a, b) {
-    history.push({ board: board.slice(), score: score, maxTierSession: maxTierSession, moves: moves });
-    const nt = board[a] + 1, gained = tierValue(nt);
-    board[a] = 0; board[b] = nt; score += gained; moves++;
-    mergedCells = [b]; newCell = -1;
-    if (nt > maxTierSession) maxTierSession = nt;
-    stats.bestTier = Math.max(stats.bestTier, maxTierSession);
-    selected = -1; spawnTile(board);
-    sfx.merge(maxTierSession); vib(8);
-    saveStats(); renderBoard(); renderHud();
-    if (maxTierSession >= WIN_TIER && !wonThisSession) { wonThisSession = true; stats.wins++; saveStats(); renderStats(); sfx.win(); $("win").hidden = false; }
-    if (!hasMoves(board)) {
-      if (mode === "blitz" && phase === "playing") { setTimeout(resetBlitzBoard, 260); }
-      else endRound();
-    }
+  function mergeTap(a, b, cb) {
+    const tier = board[a];
+    animating = true;
+    animateSlide([{ from: a, to: b, tier: tier }], function () {
+      history.push({ board: board.slice(), score: score, maxTierSession: maxTierSession, moves: moves });
+      const nt = tier + 1, gained = tierValue(nt);
+      board[a] = 0; board[b] = nt; score += gained; moves++;
+      mergedCells = [b]; newCell = -1;
+      if (nt > maxTierSession) maxTierSession = nt;
+      stats.bestTier = Math.max(stats.bestTier, maxTierSession);
+      selected = -1; spawnTile(board);
+      sfx.merge(maxTierSession); vib(8);
+      saveStats(); renderBoard(); renderHud(); animating = false;
+      if (maxTierSession >= WIN_TIER && !wonThisSession) { wonThisSession = true; stats.wins++; saveStats(); renderStats(); sfx.win(); $("win").hidden = false; }
+      if (!hasMoves(board)) {
+        if (mode === "blitz" && phase === "playing") { setTimeout(resetBlitzBoard, 260); }
+        else endRound();
+      }
+      if (cb) cb();
+    });
   }
-  function wrongMerge(a, b) {
+  function wrongMerge(a, b, cb) {
     history.push({ board: board.slice(), score: score, maxTierSession: maxTierSession, moves: moves });
     const penalty = Math.min(5, score); score -= penalty; moves++;
     wrongFlashCells = [a, b]; selected = -1;
     sfx.wrong(); vib([0, 25, 30, 25]);
     saveStats(); renderBoard(); renderHud();
     clearTimeout(wrongFlashTimer);
-    wrongFlashTimer = setTimeout(function () { wrongFlashCells = []; renderBoard(); }, 320);
+    wrongFlashTimer = setTimeout(function () { wrongFlashCells = []; renderBoard(); if (cb) cb(); }, 320);
   }
-  function handleTap(idx) {
-    if (phase !== "playing" || idx < 0) return;
+  function handleTap(idx, cb) {
+    if (phase !== "playing" || idx < 0 || animating) return;
     const v = board[idx];
     if (selected === -1) { if (v !== 0) { selected = idx; renderBoard(); } return; }
     if (selected === idx) { selected = -1; renderBoard(); return; }
     const sv = board[selected], adjacent = isAdjacent(selected, idx);
-    if (adjacent && v !== 0 && v === sv) { mergeTap(selected, idx); return; }
-    if (adjacent && v !== 0 && v !== sv) { wrongMerge(selected, idx); return; }
+    if (adjacent && v !== 0 && v === sv) { mergeTap(selected, idx, cb); return; }
+    if (adjacent && v !== 0 && v !== sv) { wrongMerge(selected, idx, cb); return; }
     selected = v !== 0 ? idx : -1; renderBoard();
   }
 
   function resetRoundState() {
     score = 0; maxTierSession = 1; moves = 0; undoLeft = undoMax(); phase = "playing"; history = []; wonThisSession = false; mergedCells = []; timeLeft = BLITZ_TIME;
-    selected = -1; wrongFlashCells = []; clearTimeout(wrongFlashTimer);
+    selected = -1; wrongFlashCells = []; clearTimeout(wrongFlashTimer); animating = false; $("ghosts").textContent = "";
   }
   function newRound() {
     $("ov").hidden = true; $("win").hidden = true; clearInterval(timerId);
@@ -554,9 +616,10 @@ footer { color:var(--muted); font-size:0.8rem; }
     if (col < 0 || col >= SIZE || row < 0 || row >= SIZE) return -1;
     return row * SIZE + col;
   }
-  gridEl.addEventListener("pointerdown", function (e) { pdx = e.clientX; pdy = e.clientY; pActive = true; });
+  gridEl.addEventListener("pointerdown", function (e) { if (animating) return; pdx = e.clientX; pdy = e.clientY; pActive = true; });
   gridEl.addEventListener("pointerup", function (e) {
-    if (!pActive) return; pActive = false;
+    if (!pActive || animating) { pActive = false; return; }
+    pActive = false;
     const dx = e.clientX - pdx, dy = e.clientY - pdy, ax = Math.abs(dx), ay = Math.abs(dy);
     if (Math.max(ax, ay) >= 24) { if (ax > ay) move(dx > 0 ? "right" : "left"); else move(dy > 0 ? "down" : "up"); return; }
     handleTap(cellIndexAt(e.clientX, e.clientY));
@@ -739,18 +802,63 @@ footer { color:var(--muted); font-size:0.8rem; }
   document.addEventListener("visibilitychange", function () { if (!document.hidden && !supporter && jget("mrg-tip", null)) runCheck(4, true); });
   { const p = jget("mrg-tip", null); if (p && !p.amt) lsSet("mrg-tip", ""); }
 
+  // ---------- tutorial ----------
+  function showTutorial() { $("tutorial").hidden = false; $("tut-cap").textContent = ""; }
+  function hideTutorial(markSeen) { $("tutorial").hidden = true; if (markSeen) lsSet("mrg-tutorial-seen", "1"); }
+  function tutSetCap(text) { $("tut-cap").textContent = text; }
+  function runTutorialDemo() {
+    if (animating) return;
+    $("tut-play").disabled = true; $("tut-skip").disabled = true;
+    mode = "endless"; dailyCfg = null; rng = Math.random;
+    resetRoundState();
+    board = new Array(SIZE * SIZE).fill(0); newCell = -1;
+    renderMode(); renderBoard(); renderHud();
+    try { $("board").scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+    const steps = [
+      function (next) {
+        tutSetCap("Swipe, use the arrow keys, or the pad — every coin slides, and matching coins merge.");
+        board[0] = 1; board[1] = 1; renderBoard();
+        setTimeout(function () { move("left", next); }, 700);
+      },
+      function (next) {
+        tutSetCap("Or tap a coin, then tap a matching coin right next to it, to merge just that pair.");
+        setTimeout(function () {
+          board = new Array(SIZE * SIZE).fill(0); board[5] = 1; board[6] = 1; newCell = -1; renderBoard();
+          setTimeout(function () { handleTap(5); setTimeout(function () { handleTap(6, next); }, 650); }, 500);
+        }, 900);
+      },
+      function (next) {
+        tutSetCap("Tap two that don't match, though, and it costs a little score and flashes red.");
+        setTimeout(function () {
+          board = new Array(SIZE * SIZE).fill(0); board[9] = 1; board[10] = 2; newCell = -1; renderBoard();
+          setTimeout(function () { handleTap(9); setTimeout(function () { handleTap(10, next); }, 650); }, 500);
+        }, 1100);
+      },
+      function (next) { tutSetCap("That's it — have fun!"); setTimeout(next, 1300); }
+    ];
+    let i = 0;
+    function runNext() { if (i >= steps.length) { finish(); return; } const s = steps[i++]; s(runNext); }
+    function finish() { $("tut-play").disabled = false; $("tut-skip").disabled = false; hideTutorial(true); newRound(); }
+    runNext();
+  }
+  $("tut-play").addEventListener("click", runTutorialDemo);
+  $("tut-skip").addEventListener("click", function () { hideTutorial(true); });
+  $("tut-reopen").addEventListener("click", function () { showTutorial(); try { $("tutorial").scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {} });
+
   // ---------- go ----------
   applyAccent(); renderSound(); renderThemes(); renderTip(); renderDaily(); renderStats(); renderLadder();
   setInterval(renderDaily, 30000);
   newRound();
+  if (!lsGet("mrg-tutorial-seen", null)) showTutorial();
   if (/[?&]selftest/.test(location.search)) {
     window.__mg = {
       move: move, doUndo: doUndo, newRound: newRound, setMode: function (m) { mode = m; newRound(); }, forceTimeUp: function () { timeLeft = 0; endRound(); },
       setBoard: function (arr) { board = arr.slice(); renderBoard(); }, hasMoves: function () { return hasMoves(board); },
-      handleTap: handleTap, isAdjacent: isAdjacent,
+      handleTap: handleTap, isAdjacent: isAdjacent, slideLine: slideLine,
       get board() { return board; }, get phase() { return phase; }, get score() { return score; }, get maxTierSession() { return maxTierSession; },
       get moves() { return moves; }, get undoLeft() { return undoLeft; }, get daily() { return daily; }, get stats() { return stats; }, get wonThisSession() { return wonThisSession; },
-      get selected() { return selected; }, get wrongFlashCells() { return wrongFlashCells; },
+      get selected() { return selected; }, get wrongFlashCells() { return wrongFlashCells; }, get animating() { return animating; },
+      runTutorialDemo: runTutorialDemo, showTutorial: showTutorial, hideTutorial: hideTutorial, get tutorialShown() { return !$("tutorial").hidden; }, get tutCaption() { return $("tut-cap").textContent; },
       WIN_TIER: WIN_TIER, tierValue: tierValue, setSupporter: function (v) { supporter = v; }
     };
   }
