@@ -4,8 +4,9 @@ A free, single-file browser coin-merging puzzle with Nano at its heart. Merge yo
 
 ## Play
 
-- **Slide** with swipe, the arrow keys / WASD, or the on-screen pad. Every coin on the board slides as far as it can; two coins of the same kind merge into the next coin up the ladder.
+- **Slide** with swipe, the arrow keys / WASD, or the on-screen pad. Every coin on the board slides as far as it can, with a visible sliding animation; two coins of the same kind merge into the next coin up the ladder.
 - **Or tap to merge:** tap a coin, then tap a same-kind coin right next to it, to merge just that pair in place — no need to move the whole board. Tap a coin and then an empty or non-adjacent cell to change your selection instead, with no penalty. Tapping two neighbouring coins that *don't* match costs a small score penalty and flashes red, so line up the right pair first. Both controls work on the same board — mix and match as you like.
+- **New here?** A "? How it works" button runs a short animated demo of both controls right on your own board — shown automatically the first time, and replayable any time.
 - **Ladder:** Dogecoin → Litecoin → XRP → Cardano → BNB → Solana → Polkadot → Monero → Ethereum → Bitcoin → **Nano**. Reaching an XNO tile wins the round — keep playing afterwards for a higher score, or finish there.
 - **Daily challenge:** the same starting board and coin draws for everyone, new every day at 00:00 UTC. Play until the board is full, or finish early once you've reached Nano, to keep your streak.
 - **Blitz 90:** 90 seconds on the clock. If the board fills up, it clears itself and your score carries on.
